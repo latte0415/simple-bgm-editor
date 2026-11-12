@@ -6,6 +6,7 @@ import { GRID_OPTIONS, beatIndexAt, type GridSetting } from '../lib/grid';
 import { clipEnd } from '../state/edit';
 import { fmtTime } from '../lib/format';
 import { IconDownload, IconFit, IconFollow, IconLoop, IconMagnet, IconMinus, IconPlay, IconPlus, IconRedo, IconStop, IconUndo } from './icons';
+import { toggleHelp, useHelpOpen } from './HelpPanel';
 
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/.test(navigator.platform);
 export const MOD = isMac ? '⌘' : 'Ctrl+';
@@ -71,6 +72,7 @@ export function Toolbar() {
   const canRedo = useEditor((s) => s.future.length > 0);
   const hasClips = useEditor((s) => s.clips.length > 0);
   const busy = useEditor((s) => s.busy);
+  const helpOpen = useHelpOpen();
 
   return (
     <header className="toolbar">
@@ -117,6 +119,9 @@ export function Toolbar() {
       </div>
 
       <div className="spacer" />
+      <div className="group">
+        <button className={`icon-btn ${helpOpen ? 'on' : ''}`} title="사용법 (?)" aria-label="사용법" onClick={toggleHelp}><span className="help-glyph">?</span></button>
+      </div>
       <button className="btn btn-primary" disabled={!hasClips || !!busy} onClick={exportWav}>
         <IconDownload /> WAV 내보내기
       </button>

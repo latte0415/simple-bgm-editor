@@ -437,3 +437,76 @@ button:focus-visible, input:focus-visible, select:focus-visible { outline: 1px s
   .url-input { width: 46vw; }
   .or, .importbar .btn svg { display: none; }
 }
+
+/* ------------------------------------------------------------------ help
+   HelpPanel.tsx — `?` key / toolbar button. Self-contained section. */
+
+.help-glyph { font-size: 14px; font-weight: 500; line-height: 1; }
+
+.help-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: grid;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
+  place-items: center;
+  padding: 32px 16px;
+  background: color-mix(in srgb, var(--bg) 78%, transparent);
+}
+.help-panel {
+  width: min(800px, 100%);
+  max-height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  outline: none;
+}
+.help-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 44px;
+  padding: 0 7px 0 16px;
+  border-bottom: 1px solid var(--line);
+  flex-shrink: 0;
+}
+.help-head h2 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
+.help-head .label { margin-left: auto; }
+.help-body { overflow-y: auto; min-height: 0; scrollbar-width: thin; }
+.help-sec { padding: 14px 16px 16px; border-bottom: 1px solid var(--line-soft); min-width: 0; }
+.help-body > .help-sec:last-child { border-bottom: 0; }
+.help-sec h3 { margin: 0 0 10px; font-size: 10.5px; font-weight: 500; color: var(--ink-3); letter-spacing: 0.02em; }
+.help-sec b { font-weight: 600; color: var(--ink); }
+.help-sec kbd { color: var(--ink); font-size: 10.5px; }
+
+.help-steps { list-style: none; margin: 0; padding: 0; border: 1px solid var(--line); }
+.help-steps li { display: grid; grid-template-columns: 30px 112px minmax(0, 1fr); }
+.help-steps li + li { border-top: 1px solid var(--line-soft); }
+.help-steps .n { font-family: var(--mono); font-size: 11px; color: var(--ink-3); text-align: center; padding: 9px 0; border-right: 1px solid var(--line-soft); }
+.help-steps .t { padding: 9px 12px; font-weight: 600; white-space: nowrap; }
+.help-steps .d { padding: 9px 14px 9px 0; color: var(--ink-2); line-height: 1.6; }
+
+.help-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); border-bottom: 1px solid var(--line-soft); }
+.help-cols > .help-sec { border-bottom: 0; }
+.help-cols > .help-sec + .help-sec { border-left: 1px solid var(--line-soft); }
+.help-table { width: 100%; border-collapse: collapse; }
+.help-table td { padding: 5px 0; border-top: 1px solid var(--line-faint); vertical-align: baseline; }
+.help-table tr:first-child td { border-top: 0; }
+.help-table td:first-child { padding-right: 14px; white-space: nowrap; width: 1%; }
+.help-table td:last-child { color: var(--ink-2); }
+
+.help-tips { list-style: none; margin: 0; padding: 0; color: var(--ink-2); line-height: 1.6; }
+.help-tips li { position: relative; padding-left: 14px; }
+.help-tips li + li { margin-top: 4px; }
+.help-tips li::before { content: '–'; position: absolute; left: 0; color: var(--ink-3); }
+
+@media (max-width: 860px) {
+  .help-backdrop { padding: 12px; }
+  .help-head .label { display: none; }
+  .help-head .icon-btn { margin-left: auto; }
+  .help-steps li { grid-template-columns: 30px minmax(0, 1fr); }
+  .help-steps .d { grid-column: 2; padding: 0 12px 9px; }
+  .help-cols { grid-template-columns: minmax(0, 1fr); }
+  .help-cols > .help-sec + .help-sec { border-left: 0; border-top: 1px solid var(--line-soft); }
+}

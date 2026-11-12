@@ -5,6 +5,7 @@ import { TrackList } from './TrackList';
 import { Arrangement } from './Arrangement';
 import { Inspector } from './Inspector';
 import { useShortcuts } from './useShortcuts';
+import { HelpPanel } from './HelpPanel';
 import { useEditor } from '../state/store';
 import { importFiles, importYoutube } from '../state/commands';
 
@@ -60,6 +61,7 @@ export function App() {
       <Inspector />
       {notice && <div className={`notice notice-${notice.kind}`} role="status">{notice.text}</div>}
       {dragging && <div className="dropzone"><span>놓아서 트랙에 추가</span></div>}
+      <HelpPanel />
     </div>
   );
 }

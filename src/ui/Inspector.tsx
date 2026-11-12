@@ -143,6 +143,9 @@ const HELP: [string, string][] = [
 function Help() {
   return (
     <div className="inspector-row help">
+      <Cell label="도움말">
+        <span className="keys"><span><kbd>?</kbd> 사용법 보기</span></span>
+      </Cell>
       <Cell label="마우스">
         <span className="keys">
           <span>상단 바 드래그 — 이동</span>
