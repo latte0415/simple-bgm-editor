@@ -1,5 +1,12 @@
+# Keep secrets and local artifacts out of the image. Render puts Secret Files in the build
+# context root too; the server reads them from /etc/secrets at runtime instead.
+cookies.txt
+*.cookies.txt
+.env
+.env.*
 node_modules
 dist
 .git
 .claude
 *.log
+.DS_Store

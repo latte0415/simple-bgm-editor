@@ -7,6 +7,12 @@ services:
     envVars:
       - key: MAX_DURATION_SEC
         value: "1200"
+      # Shared entry password; enter it in the Render dashboard (unset = no gate).
+      - key: APP_PASSWORD
+        sync: false
+      # YouTube cookies: add a Secret File named cookies.txt (Environment → Secret Files);
+      # the server picks up /etc/secrets/cookies.txt automatically.
+
       # Only needed when the front end is hosted elsewhere (e.g. Vercel):
       # - key: CORS_ORIGIN
       #   value: https://your-app.vercel.app
