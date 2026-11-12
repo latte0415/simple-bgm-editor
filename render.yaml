@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: bgm-editor
+    runtime: docker
+    plan: free
+    healthCheckPath: /api/health
+    envVars:
+      - key: MAX_DURATION_SEC
+        value: "1200"
+      # Only needed when the front end is hosted elsewhere (e.g. Vercel):
+      # - key: CORS_ORIGIN
+      #   value: https://your-app.vercel.app

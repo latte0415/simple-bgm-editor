@@ -1,0 +1,29 @@
+{
+  "name": "magic-bgm-editor",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "concurrently -k -n web,api -c gray,gray \"vite\" \"node --watch server/index.mjs --port 8787\"",
+    "build": "tsc --noEmit && vite build",
+    "start": "node server/index.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "express": "^4.22.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "zustand": "^4.5.7"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.31",
+    "@types/react-dom": "^18.3.7",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.5",
+    "typescript": "^5.9.3",
+    "vite": "^5.4.21"
+  }
+}
