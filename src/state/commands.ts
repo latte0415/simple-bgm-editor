@@ -3,6 +3,7 @@ import { MAX_TRACKS, commit, edit, get, notify, pushHistory, set, zoomToFit, typ
 import { arrangementEnd, clipEnd, removeRange, splitClip } from './edit';
 import { beatLengthAt } from '../lib/grid';
 import { uid } from '../lib/format';
+import { apiFetch } from '../lib/api';
 import { engine } from '../audio/engine';
 import { computePeaks } from '../audio/peaks';
 import { analyzeBuffer } from '../audio/analyze';
@@ -78,10 +79,9 @@ function updateSource(id: Id, patch: { analysis?: Analysis; status?: 'ready' | '
 }
 
 export async function fetchYoutube(url: string): Promise<{ data: ArrayBuffer; title: string }> {
-  const base = (import.meta.env.VITE_API_BASE as string | undefined) ?? '';
   let res: Response;
   try {
-    res = await fetch(`${base}/api/youtube`, {
+    res = await apiFetch('/api/youtube', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ url }),
@@ -89,6 +89,7 @@ export async function fetchYoutube(url: string): Promise<{ data: ArrayBuffer; ti
   } catch {
     throw new Error('추출 서버에 연결할 수 없습니다.');
   }
+  if (res.status === 401) throw new Error('입장 비밀번호를 다시 입력한 뒤 시도하세요.');
   if (!res.ok) {
     const j = (await res.json().catch(() => null)) as { error?: string } | null;
     throw new Error(j?.error ?? `추출 실패 (HTTP ${res.status})`);

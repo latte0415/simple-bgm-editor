@@ -6,13 +6,14 @@ import { mkdtemp, readdir, rm, stat } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { authRequired, authRouter } from './auth.mjs';
+import { cookieArgs, hasCookies } from './ytCookies.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const argPort = process.argv.indexOf('--port');
 const PORT = Number(argPort > 0 ? process.argv[argPort + 1] : process.env.PORT) || 8787;
 const YTDLP = process.env.YTDLP_PATH || 'yt-dlp';
 const EXTRA_ARGS = (process.env.YTDLP_ARGS || '').split(/\s+/).filter(Boolean);
-const COOKIES = process.env.YTDLP_COOKIES || '';
 const MAX_SEC = Number(process.env.MAX_DURATION_SEC) || 1200;
 const MAX_JOBS = Number(process.env.MAX_CONCURRENT) || 2;
 const TIMEOUT_MS = Number(process.env.EXTRACT_TIMEOUT_MS) || 180_000;
@@ -66,7 +67,11 @@ function run(cmd, args, timeoutMs) {
 
 function explain(stderr, code) {
   if (code === -1 && /ENOENT/.test(stderr)) return [500, '서버에 yt-dlp가 설치되어 있지 않습니다.'];
-  if (/Sign in to confirm|not a bot/i.test(stderr)) return [502, 'YouTube가 서버 요청을 차단했습니다. 잠시 후 다시 시도하거나 파일을 직접 업로드하세요.'];
+  if (/Sign in to confirm|not a bot/i.test(stderr)) {
+    return [502, hasCookies
+      ? 'YouTube가 서버 요청을 봇으로 판단해 차단했습니다. 서버에 설정된 YouTube 쿠키가 만료되었을 수 있습니다. 지금은 파일을 직접 업로드해 주세요. (관리자: 쿠키를 새로 내보내 교체하세요)'
+      : 'YouTube가 이 서버의 IP를 봇으로 판단해 차단했습니다. 지금은 파일을 직접 업로드해 주세요. (관리자: 서버에 YouTube 쿠키를 설정하면 해결될 수 있습니다)'];
+  }
   if (/Private video|members-only|This video is unavailable|Video unavailable/i.test(stderr)) return [404, '비공개이거나 재생할 수 없는 영상입니다.'];
   if (/age/i.test(stderr) && /confirm/i.test(stderr)) return [403, '연령 제한 영상은 추출할 수 없습니다.'];
   if (/larger than max-filesize|File is larger/i.test(stderr)) return [413, '파일이 너무 큽니다.'];
@@ -76,11 +81,16 @@ function explain(stderr, code) {
 
 const app = express();
 app.disable('x-powered-by');
+// Render (and most PaaS) terminate TLS at a proxy: trust X-Forwarded-Proto/For for req.secure / req.ip.
+app.set('trust proxy', true);
 
 if (CORS_ORIGIN) {
   app.use('/api', (req, res, next) => {
     res.set('Access-Control-Allow-Origin', CORS_ORIGIN);
-    res.set('Access-Control-Allow-Headers', 'content-type');
+    res.set('Access-Control-Allow-Credentials', 'true');
+    res.set('Access-Control-Allow-Headers', 'content-type, authorization');
+    res.set('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.vary('Origin');
     res.set('Access-Control-Expose-Headers', 'x-title');
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
@@ -90,6 +100,7 @@ if (CORS_ORIGIN) {
 app.use(express.json({ limit: '8kb' }));
 
 app.get('/api/health', (_req, res) => res.json({ ok: true }));
+app.use('/api', authRouter());
 
 let jobs = 0;
 
@@ -112,7 +123,7 @@ app.post('/api/youtube', async (req, res) => {
       '--print', 'after_move:%(title)s',
       // YouTube needs a JS runtime to solve playback challenges; reuse this Node binary.
       '--js-runtimes', `node:${process.execPath}`,
-      ...(COOKIES ? ['--cookies', COOKIES] : []),
+      ...(await cookieArgs(dir)),
       ...EXTRA_ARGS,
       '--', url,
     ];
@@ -158,4 +169,4 @@ if (existsSync(dist)) {
   });
 }
 
-app.listen(PORT, () => console.log(`bgm-editor server on :${PORT}`));
+app.listen(PORT, () => console.log(`bgm-editor server on :${PORT} (입장 비밀번호 ${authRequired ? '사용' : '없음'})`));
