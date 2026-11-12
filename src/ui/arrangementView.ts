@@ -12,7 +12,7 @@
  */
 import { commit, get, pushHistory, set, setScroll, useEditor, zoomAt } from '../state/store';
 import { clipEnd, DECLICK, effectiveFades, fadeGain, MIN_LEN, type Fades } from '../state/edit';
-import { displayDiv, gridLines, nearestGrid, resolveDiv } from '../lib/grid';
+import { displayDiv, gapDiv, gridLines, nearestGrid, resolveDiv } from '../lib/grid';
 import { rangeMinMax } from '../audio/peaks';
 import { position, seek } from '../audio/transport';
 import { clamp, dbToGain, fmtShort } from '../lib/format';
@@ -162,10 +162,75 @@ export class ArrangementView {
     const t = s.tracks[lane];
     return t ? s.clips.filter((c) => c.trackId === t.id) : [];
   }
-  private clipAt(lane: number, t: number): Clip | null {
+  private clipAt(lane: number, t: number, ok?: (c: Clip) => boolean): Clip | null {
     const sel = new Set(get().selected);
-    const list = this.laneClips(lane).filter((c) => t >= c.start && t <= clipEnd(c));
+    const list = this.laneClips(lane).filter((c) => t >= c.start && t <= clipEnd(c) && (!ok || ok(c)));
     return list.find((c) => sel.has(c.id)) ?? list[list.length - 1] ?? null;
+  }
+
+  /* -------------------------------------------------- arrangement grid */
+
+  /**
+   * Clip whose beat grid rules time t on `lane`: an analysed clip under t (this lane, then the nearest lane),
+   * else the analysed clip nearest in time (this lane, then any), its grid continued past its edges.
+   */
+  private gridRef(t: number, lane: number, exclude?: Set<string>): Clip | null {
+    const s = get();
+    const ok = (c: Clip) => !exclude?.has(c.id) && this.analysis(c) != null;
+    const lanes = s.tracks.map((_, i) => i).sort((p, q) => Math.abs(p - lane) - Math.abs(q - lane));
+    for (const i of lanes) {
+      const c = this.clipAt(i, t, ok);
+      if (c) return c;
+    }
+    const tid = s.tracks[lane]?.id;
+    let best: Clip | null = null;
+    let bestD = Infinity;
+    let bestOwn = false;
+    for (const c of s.clips) {
+      if (!ok(c)) continue;
+      const own = c.trackId === tid;
+      const d = Math.max(c.start - t, t - clipEnd(c));
+      if ((own && !bestOwn) || (own === bestOwn && d < bestD)) { best = c; bestD = d; bestOwn = own; }
+    }
+    return best;
+  }
+
+  /** [t0, t1) cut into spans over which gridRef() is constant. */
+  private gridSpans(lane: number, t0: number, t1: number, exclude?: Set<string>): { a: number; b: number; ref: Clip }[] {
+    const s = get();
+    const refs = s.clips.filter((c) => !exclude?.has(c.id) && this.analysis(c));
+    if (!refs.length || !(t1 > t0)) return [];
+    const tid = s.tracks[lane]?.id;
+    const edges = (cs: Clip[]) => cs.flatMap((c) => [c.start, clipEnd(c)]).sort((p, q) => p - q);
+    const mids = (e: number[]) => e.slice(1).map((v, i) => (v + e[i]) / 2);
+    const all = edges(refs);
+    const own = edges(refs.filter((c) => c.trackId === tid));
+    const cuts = [t0, t1, ...all, ...mids(all), ...mids(own)].filter((v) => v >= t0 && v <= t1).sort((p, q) => p - q);
+    const out: { a: number; b: number; ref: Clip }[] = [];
+    for (let i = 1; i < cuts.length; i++) {
+      const a = cuts[i - 1];
+      const b = cuts[i];
+      if (b - a > 1e-9) out.push({ a, b, ref: this.gridRef((a + b) / 2, lane, exclude)! });
+    }
+    return out;
+  }
+
+  /** Timeline times of c's grid lines in [t0, t1), continued past its edges at the tempo there. */
+  private extLines(c: Clip, t0: number, t1: number, div: number): number[] {
+    const an = this.analysis(c);
+    if (!an) return [];
+    const d = c.start - c.offset;
+    const out: number[] = [];
+    for (const l of gridLines(an, t0 - d, t1 - d, div, [c.offset, c.offset + c.duration])) {
+      const t = l.t + d;
+      if (t < t1) out.push(t);
+    }
+    return out;
+  }
+
+  private gapDiv(c: Clip): number {
+    const an = this.analysis(c);
+    return an ? gapDiv(get().grid, this.pxPerBeat(an)) : 0;
   }
 
   /* ------------------------------------------------------------ snapping */
@@ -178,23 +243,23 @@ export class ArrangementView {
     return g == null ? null : c.start + (g - c.offset);
   }
 
-  /** Snap a time on `lane`: grid of the clip under it (or on another lane), then nearby clip edges. */
-  private snapTime(t: number, lane: number, exclude?: Set<string>, ref?: Clip | null): number {
+  private gridSnapOutside(c: Clip, t: number): number | null {
+    const an = this.analysis(c);
+    if (!an) return null;
+    const g = nearestGrid(an, c.offset + (t - c.start), this.gapDiv(c), [c.offset, c.offset + c.duration]);
+    return g == null ? null : c.start + (g - c.offset);
+  }
+
+  /** Snap a time on `lane`: the arrangement grid at t (bars in empty space), then nearby clip edges. */
+  private snapTime(t: number, lane: number, exclude?: Set<string>): number {
     const s = get();
     if (!s.snap) return t;
     const thr = SNAP_PX / s.pxPerSec;
     let best = t;
     let bestD = Infinity;
-    let r = ref ?? this.clipAt(lane, t);
-    if (!r) {
-      let dist = Infinity;
-      s.tracks.forEach((_, i) => {
-        const c = this.clipAt(i, t);
-        if (c && Math.abs(i - lane) < dist) { dist = Math.abs(i - lane); r = c; }
-      });
-    }
+    const r = this.gridRef(t, lane, exclude);
     if (r) {
-      const g = this.gridSnapInClip(r, t);
+      const g = t >= r.start && t <= clipEnd(r) ? this.gridSnapInClip(r, t) : this.gridSnapOutside(r, t);
       if (g != null) { best = g; bestD = Math.abs(g - t); }
     }
     const cands = [0];
@@ -206,8 +271,11 @@ export class ArrangementView {
     return best;
   }
 
-  /** Magnetic move: align any grid line / edge of the moving clip with any grid line / edge of other clips. */
-  private snapMove(c: Clip, start: number, moving: Set<string>): number {
+  /**
+   * Magnetic move: align any grid line / edge of the moving clip with any grid line / edge of other clips;
+   * in empty space on `lane`, align its edges / bars with the bars continued from the clip that rules there.
+   */
+  private snapMove(c: Clip, start: number, lane: number, moving: Set<string>): number {
     const s = get();
     const pps = s.pxPerSec;
     const thr = SNAP_PX / pps;
@@ -224,30 +292,25 @@ export class ArrangementView {
       const b = o.offset + Math.min(o.duration, v1 - o.start);
       if (b > a) for (const l of gridLines(an, a, b, div)) targets.push(o.start + l.t - o.offset);
     }
-    targets.sort((x, y) => x - y);
+    const bars: number[] = [];
+    for (const sp of this.gridSpans(lane, v0, v1, moving)) {
+      const m = (sp.a + sp.b) / 2;
+      if (m < sp.ref.start || m > clipEnd(sp.ref)) bars.push(...this.extLines(sp.ref, sp.a, sp.b, this.gapDiv(sp.ref)));
+    }
     const anchors = [0, c.duration];
+    const barAnchors = [0, c.duration];
     const an = this.analysis(c);
     if (an) {
-      const div = resolveDiv(s.grid, this.pxPerBeat(an));
       const a = c.offset + Math.max(0, v0 - start);
       const b = c.offset + Math.min(c.duration, v1 - start);
-      if (b > a) for (const l of gridLines(an, a, b, div)) anchors.push(l.t - c.offset);
-    }
-    let best = Infinity;
-    for (const a of anchors) {
-      const p = start + a;
-      let lo = 0;
-      let hi = targets.length - 1;
-      while (hi - lo > 1) {
-        const m = (lo + hi) >> 1;
-        if (targets[m] <= p) lo = m;
-        else hi = m;
-      }
-      for (const tg of [targets[lo], targets[hi]]) {
-        const d = tg - p;
-        if (Math.abs(d) < Math.abs(best)) best = d;
+      if (b > a) {
+        for (const l of gridLines(an, a, b, resolveDiv(s.grid, this.pxPerBeat(an)))) anchors.push(l.t - c.offset);
+        for (const l of gridLines(an, a, b, this.gapDiv(c))) barAnchors.push(l.t - c.offset);
       }
     }
+    const d1 = nearestShift(anchors, targets, start);
+    const d2 = nearestShift(barAnchors, bars, start);
+    const best = Math.abs(d2) < Math.abs(d1) ? d2 : d1;
     return Math.abs(best) <= thr ? start + best : start;
   }
 
@@ -358,7 +421,7 @@ export class ArrangementView {
         const a = d.orig.get(d.anchor)!;
         let start = a.start + (x - d.x0) / s.pxPerSec;
         const anchorClip = s.clips.find((c) => c.id === d.anchor);
-        if (anchorClip && s.snap && !free) start = this.snapMove(anchorClip, start, new Set(d.orig.keys()));
+        if (anchorClip && s.snap && !free) start = this.snapMove(anchorClip, start, a.lane + ld, new Set(d.orig.keys()));
         let dt = start - a.start;
         const minStart = Math.min(...[...d.orig.values()].map((o) => o.start));
         if (minStart + dt < 0) dt = -minStart;
@@ -376,7 +439,7 @@ export class ArrangementView {
         let tt = t;
         if (s.snap && !free) {
           const g = this.gridSnapInClip(o, t);
-          tt = this.snapTime(t, 0, new Set([o.id]), null);
+          tt = this.snapTime(t, 0, new Set([o.id]));
           if (g != null && Math.abs(g - t) <= Math.abs(tt - t)) tt = g;
           else if (g != null && Math.abs(tt - t) > SNAP_PX / s.pxPerSec) tt = g;
         }
@@ -564,9 +627,24 @@ export class ArrangementView {
     return { major, minor: major / sub, ratio: sub };
   }
 
+  /** Faint vertical rules under the clips: bars of the arrangement grid, or seconds when nothing is analysed. */
   private drawTimeGrid(bottom: number) {
     const g = this.g;
     const s = get();
+    const t0 = s.scrollX;
+    const t1 = s.scrollX + this.w / s.pxPerSec;
+    let ruled = false;
+    g.fillStyle = this.col.lineFaint;
+    for (let i = 0; i < s.tracks.length; i++) {
+      const top = this.laneTop(i);
+      for (const sp of this.gridSpans(i, t0, t1)) {
+        ruled = true;
+        const an = this.analysis(sp.ref)!;
+        const div = Math.min(displayDiv(s.grid, this.pxPerBeat(an)), 0.25);
+        for (const t of this.extLines(sp.ref, sp.a, sp.b, div)) g.fillRect(Math.round(this.xAt(t)), top, 1, LANE_H - 1);
+      }
+    }
+    if (ruled) return;
     const { major } = this.rulerSteps();
     const i0 = Math.floor(s.scrollX / major);
     const i1 = Math.ceil((s.scrollX + this.w / s.pxPerSec) / major);
@@ -810,6 +888,28 @@ export class ArrangementView {
       cursor = Math.max(cursor, lx + g.measureText(label).width + 10);
     }
   }
+}
+
+/** Smallest signed shift putting one of `anchors` (relative to `start`) on one of `targets`. */
+function nearestShift(anchors: number[], targets: number[], start: number): number {
+  if (!targets.length) return Infinity;
+  targets.sort((x, y) => x - y);
+  let best = Infinity;
+  for (const a of anchors) {
+    const p = start + a;
+    let lo = 0;
+    let hi = targets.length - 1;
+    while (hi - lo > 1) {
+      const m = (lo + hi) >> 1;
+      if (targets[m] <= p) lo = m;
+      else hi = m;
+    }
+    for (const tg of [targets[lo], targets[hi]]) {
+      const d = tg - p;
+      if (Math.abs(d) < Math.abs(best)) best = d;
+    }
+  }
+  return best;
 }
 
 function rulerLabel(t: number, step: number): string {

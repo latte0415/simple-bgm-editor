@@ -43,6 +43,13 @@ export function displayDiv(setting: GridSetting, pxPerBeat: number): number {
   return Math.min(DIV[setting], fine);
 }
 
+/** Resolution for empty timeline space: bars, unless a specific grid is chosen. */
+export function gapDiv(setting: GridSetting, pxPerBeat: number): number {
+  if (setting !== 'auto') return DIV[setting];
+  const d = autoDiv(pxPerBeat);
+  return d ? Math.min(d, 0.25) : 0.25;
+}
+
 /** Beat k's time, linearly extrapolated outside the detected range. */
 export function beatTime(beats: number[], k: number): number {
   const m = beats.length;
@@ -80,23 +87,44 @@ export interface GridLine {
 
 const mod = (a: number, n: number) => ((a % n) + n) % n;
 
-export function gridLines(an: Analysis, t0: number, t1: number, div: number): GridLine[] {
+/** Source range [a, b] outside which the grid continues at the tempo of the beat at that edge. */
+export type GridExtent = readonly [number, number];
+
+function beatMap(beats: number[], ext?: GridExtent) {
+  const time = (k: number) => beatTime(beats, k);
+  const index = (t: number) => beatIndexAt(beats, t);
+  if (!ext) return { time, index };
+  const [a, b] = ext;
+  const ka = index(a);
+  const kb = index(b);
+  const ia = Math.floor(ka);
+  const ib = Math.ceil(kb);
+  const la = time(ia + 1) - time(ia);
+  const lb = time(ib) - time(ib - 1);
+  return {
+    time: (k: number) => (k < ka ? a + (k - ka) * la : k > kb ? b + (k - kb) * lb : time(k)),
+    index: (t: number) => (t < a ? ka + (t - a) / la : t > b ? kb + (t - b) / lb : index(t)),
+  };
+}
+
+export function gridLines(an: Analysis, t0: number, t1: number, div: number, ext?: GridExtent): GridLine[] {
   const { beats, downbeatPhase: ph } = an;
   if (beats.length < 2 || div <= 0) return [];
-  const k0 = Math.floor(beatIndexAt(beats, t0)) - 1;
-  const k1 = Math.ceil(beatIndexAt(beats, t1)) + 1;
+  const { time, index } = beatMap(beats, ext);
+  const k0 = Math.floor(index(t0)) - 1;
+  const k1 = Math.ceil(index(t1)) + 1;
   const out: GridLine[] = [];
   if (div < 1) {
     const step = Math.round(1 / div);
     for (let k = k0 - mod(k0 - ph, step); k <= k1; k += step) {
-      const t = beatTime(beats, k);
+      const t = time(k);
       if (t >= t0 && t <= t1) out.push({ t, level: 0 });
     }
     return out;
   }
   for (let k = k0; k <= k1; k++) {
-    const a = beatTime(beats, k);
-    const b = beatTime(beats, k + 1);
+    const a = time(k);
+    const b = time(k + 1);
     const bar = mod(k - ph, 4) === 0;
     for (let j = 0; j < div; j++) {
       const t = a + ((b - a) * j) / div;
@@ -107,19 +135,20 @@ export function gridLines(an: Analysis, t0: number, t1: number, div: number): Gr
   return out;
 }
 
-export function nearestGrid(an: Analysis, t: number, div: number): number | null {
+export function nearestGrid(an: Analysis, t: number, div: number, ext?: GridExtent): number | null {
   const { beats, downbeatPhase: ph } = an;
   if (beats.length < 2 || div <= 0) return null;
-  const k = Math.floor(beatIndexAt(beats, t));
+  const { time, index } = beatMap(beats, ext);
+  const k = Math.floor(index(t));
   if (div < 1) {
     const step = Math.round(1 / div);
     const kb = k - mod(k - ph, step);
-    const a = beatTime(beats, kb);
-    const b = beatTime(beats, kb + step);
+    const a = time(kb);
+    const b = time(kb + step);
     return t - a <= b - t ? a : b;
   }
-  const a = beatTime(beats, k);
-  const b = beatTime(beats, k + 1);
+  const a = time(k);
+  const b = time(k + 1);
   const j = Math.round(((t - a) / (b - a)) * div);
   return a + ((b - a) * j) / div;
 }
